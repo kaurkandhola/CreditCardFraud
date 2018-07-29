@@ -1,0 +1,202 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE) 
+```
+
+#Packages and libraries
+
+```{r}
+# install.packages("moments")
+# install.packages("ggplot2")
+# install.packages("corrplot")
+# install.packages("tidyr")
+# install.packages("dplyr")
+# install.packages("ggridges")
+# install.packages("mlbench")
+# install.packages("lattice")
+# install.packages("caret")
+# install.packages("broom")
+# install.packages("C50")
+# install.packages("rpart")
+# install.packages("MASS")
+# install.packages("leaps")
+library(moments)
+library(ggplot2)
+library("corrplot")
+library(tidyr)
+library(dplyr)
+library(ggridges)
+library(mlbench)
+library(caret)
+library("C50")
+library(rpart)
+library(MASS)
+library(leaps)
+```
+
+
+```{r}
+# Load Data 
+ccfraud <- read.csv("C:/Users/Kiran Kandhola/Documents/creditcardfraud/creditcard.csv",stringsAsFactors = FALSE)
+```
+
+```{r}
+# Check the head and data types of the attributes
+cc <- ccfraud                    ## Make a copy of the data
+head(cc)                         ## view first few records of the dataset  
+str(cc)                          ## Check the type of all the attributeslevels(cc_trainl$Class)
+```
+
+```{r}
+# Missing Values
+navalue <- sum(is.na(cc))                           # Find missing values
+navalue                                             # There is no missing value in the data
+```
+
+```{r}
+cc <- ccfraud                                       # Make a copy of the data
+cc$Class <- as.factor(cc$Class)                     # Convert the class to factors
+cc$Class <- factor(cc$Class, levels = c("1", "0"))  # Change the order of levels 
+ccfd <- cc                    
+levels(ccfd$Class) <- c("Fraud", "Genuine")         # Change the name of levels to Fraud and Genuine
+summary(ccfd)
+```
+
+```{r}
+# Summary Statistics of the data
+prop.table(table(ccfd$Class))                                    # Table of Fraud and Genuine cases
+fraudpercent <- sum(as.numeric(ccfraud$Class))/nrow(ccfraud)  
+sprintf('Percentage of fraudulent transactions in the data set %f', fraudpercent*100)
+```
+
+```{r}
+# Check skewness of the data
+skewness(ccfraud)                                        
+```
+
+```{r}
+## Visulaization of class imbalance
+ggplot(ccfd, aes(x = Class)) + geom_bar(fill= "lightblue", colour = "navyblue") + ggtitle("Number of Genuine and Fraud Transactions")
+```
+
+```{r}
+# correlations between the attributes and the "Class"
+correlations <- cor(ccfraud)
+corrplot(correlations, method = "circle", type = "full", number.cex = .9, tl.cex=0.8, tl.col = "navyblue")
+```
+
+
+```{r}
+ccfd %>%
+  gather(variable, value, -Class) %>%
+  ggplot(aes(y = as.factor(variable), 
+             fill = as.factor(Class), 
+             x = percent_rank(value)))+scale_color_hue(l=40, c=35) + geom_density_ridges()
+# For aclassifier to work well we have a strong initial assumption: that the distribution of variables for normal transactions is different from the distribution for fraudulent ones. Let's make some plots to verify this. Variables were transformed to a [0,1] interval for plotting.
+# We can see that distributions of variables for fraudulent transactions are very different then from normal ones, except for the Time variable, which seems to have the exact same distribution
+```
+
+```{r}
+# Visualization of the mean values of all the features for fraudulent and genuine transactions
+rownames(ccfd) <- 1:nrow(ccfd)
+Genuine <- ccfd[ccfd$Class == "Genuine",]
+Fraud <- ccfd[ccfd$Class == "Fraud",]
+mugenuine <- apply(Genuine[, -c(1, 30, 31)], 2, mean)
+mufraud <- apply(Fraud[, -c(1, 30, 31)], 2, mean)
+plot(mufraud, col = "red",xaxt = "n",xlab = "Features", ylab = "Mean", col.axis = "darkgreen")
+lines(mufraud, col = "red", lwd = 2)
+points(mugenuine, col = "blue")
+lines(mugenuine, col = "blue", lwd = 2)
+legend("topright", legend = c("Genuine", "Fraud"), lty = c(1,1), col = c("blue", "red"), lwd = c(2,2))
+a <- c("V")
+b <- c(1:28)
+xlabels<- paste(a,b,sep="")
+axis(side = 1,at = 1:28, labels = xlabels, col.axis="darkgreen")
+```
+
+```{r}
+# Remove Redundant Features with an absolute correlation of 0.75 or higher.
+set.seed(7)
+correlationMatrix <- cor(ccfraud[ , -c(31)])    # calculate correlation matrix
+highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.75) 
+print(highlyCorrelated)                   # print indexes of attributes that are highly correlated to other remaining variables
+# none of the attributes are highly correlated to each other as all attributes are already PCA transformed
+```
+
+```{r}
+# Rank of features by importance using glm
+set.seed(7)
+control <- trainControl(method="repeatedcv", number=10, repeats=3)  # prepare training scheme
+model <- train(Class~., data=cc[ , -c(1)], method="glm", trControl=control)   # train the model
+importance <- varImp(model, scale=FALSE)        # estimate variable importance
+print(importance)                               # summarize importance
+plot(importance)                                # plot importance
+```
+
+```{r}
+# Rank of features by importance using rpart
+set.seed(7)                                    
+control <- trainControl(method="cv", number=10)                        # prepare training scheme
+model <- train(Class~., data=cc[ , -c(1)], method="rpart", trControl=control)   # train the model using logistic
+importance <- varImp(model, scale=FALSE)        # estimate variable importance
+print(importance)                               # summarize and plot importance
+plot(importance)
+```
+
+
+```{r}
+# Rank of features using C5.0
+set.seed(7)                                    
+control <- trainControl(method="cv", number=10)                   # prepare training scheme
+model <- train(Class~., data=cc[ ,-c(1)], method="C5.0", trControl=control, importance = TRUE)
+importance <- varImp(model, scale=FALSE)        # estimate variable importance
+print(importance)                               # summarize and plot importance
+plot(importance)
+```
+
+```{r}
+# Recursive feature elimination
+subsets <- c(5,10,15,20,25,30)
+set.seed(7)                                    
+ctrl <- rfeControl(functions=lmFuncs, method="cv", number=10) # define the control
+lmProfile <- rfe(ccfraud[,2:30], ccfraud[,31],sizes = subsets, rfeControl = ctrl)
+print(lmProfile)                               # summarize the results
+predictors(lmProfile)                          # list the chosen features
+plot(lmProfile, type=c("g", "o"))              # plot the results
+lmProfile
+# The results suggest that taking all the attributes will give better results. However there should not be much difference in the results if we choose a subset of 20 attributes or 25 or 30.
+```
+
+# Step Forward Selection
+```{r}
+full <- lm(Class ~. ,data = ccfraud[ ,-c(1)])
+null <- lm(Class ~ 1, data = ccfraud[ ,-c(1)])
+stepF <- stepAIC(null,scope = list(lower = null, upper = full),direction = "forward", trace = FALSE)
+stepF$anova
+```
+
+# Step Backward Selection
+```{r}
+full <- lm(Class ~. ,data = ccfraud[ ,-c(1)])
+stepB <- stepAIC(full,direction = "backward", trace = FALSE)
+stepB$anova
+```
+
+# Selection of best subsets
+```{r}
+subsets <- regsubsets(Class ~. ,data = ccfd, nbest = 1)
+sub.sum <- summary(subsets)
+as.data.frame(sub.sum$outmat)
+## the best 8 attributes are V17, V14, V12, V10, V16, V3, V7, V11 
+```
+
+
+
+
+
+
+

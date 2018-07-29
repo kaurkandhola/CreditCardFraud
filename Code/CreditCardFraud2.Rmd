@@ -1,0 +1,385 @@
+---
+title: "R Notebook"
+output:
+  word_document: default
+  html_notebook: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Load packages and libraries
+```{r}
+# install.packages("moments")
+# install.packages("ggplot2")
+# install.packages("corrplot")
+# install.packages("tidyr")
+# install.packages("dplyr")
+# install.packages("ggridges")
+# install.packages("mlbench")
+# install.packages("lattice")
+# install.packages("caret")
+# install.packages("broom")
+# install.packages("C50")
+# install.packages("rpart")
+# install.packages("pROC")
+# install.packages("DMwR")
+# install.packages("ROSE")
+# install.packages('rattle')
+# install.packages('rpart.plot')
+# install.packages('RColorBrewer')
+# install.packages("glmboost")
+# install.packages("ROCR")
+library(moments)
+library(ggplot2)
+library("corrplot")
+library(tidyr)
+library(dplyr)
+library(ggridges)
+library(mlbench)
+library(caret)
+library("C50")
+library(rpart)
+library(pROC)
+library(DMwR)
+library(ROSE)
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+library(ROCR)
+```
+
+# Load the dataset
+```{r}
+ccfraud <- read.csv("C:/Users/Kiran Kandhola/Documents/creditcardfraud/creditcard.csv",stringsAsFactors = FALSE)
+
+```
+
+# Reorder the levels of the "Class" attribute
+```{r}
+cc <- ccfraud                                       # Make a copy of the data
+cc$Class <- as.factor(cc$Class)                     # Convert the class to factors
+cc$Class <- factor(cc$Class, levels = c("1", "0"))  # Change the order of levels 
+ccfd <- cc                    
+levels(ccfd$Class) <- c("Fraud", "Genuine")         # Change the name of levels to Fraud and Genuine
+```
+
+## Stratified 80%- 20% splitting of the dataset into training and testing (time excluded)
+```{r}
+set.seed(7)
+library(caret)
+train_index <- createDataPartition(ccfd$Class,times = 1, p=0.8, list=FALSE)
+ccfd <- ccfd[ ,-c(1)]
+ccfd_train <- ccfd[train_index, ]
+ccfd_test <- ccfd[-train_index, ]
+
+zscorenormalize <- function(x){                               
+                   return((x-mean(x))/(sd(x)))}
+
+Amount_trn <- as.data.frame(lapply(ccfd_train[29], zscorenormalize))
+ccfd_train <- as.data.frame(c(ccfd_train[1:28],Amount_trn,ccfd_train[30]))
+Amount_tst <- as.data.frame(lapply(ccfd_test[29], zscorenormalize))
+ccfd_test <- as.data.frame(c(ccfd_test[1:28],Amount_tst,ccfd_test[30]))
+
+X_trn <- ccfd_train[ ,-30]
+X_tst <- ccfd_test[ ,-30]
+
+Y_trn <- ccfd_train[ ,30]
+Y_tst <- ccfd_test[ ,30]
+
+## stratified folds for cross-validation:
+foldInd <- createFolds(Y_trn, k = 10, list = TRUE, returnTrain = TRUE)
+lapply(foldInd, function(ii) table(Y_trn[ii]))
+```
+
+```{r}
+set.seed(7)
+library(caret)
+train_index <- createDataPartition(cc$Class,times = 1, p=0.8, list=FALSE)
+
+cc <- cc[ ,-c(1)]
+cc_train <- cc[train_index, ]
+cc_test <- cc[-train_index, ]
+
+zscorenormalize <- function(x){                               
+                   return((x-mean(x))/(sd(x)))}
+Amount_train <- as.data.frame(lapply(cc_train[29], zscorenormalize))
+cc_train <- as.data.frame(c(cc_train[1:28],Amount_train,cc_train[30]))
+Amount_test <- as.data.frame(lapply(ccfd_test[29], zscorenormalize))
+cc_test <- as.data.frame(c(ccfd_test[1:28],Amount_test,cc_test[30]))
+
+X_train <- cc_train[ ,-30]
+X_test <- cc_test[ ,-30]
+
+Y_train <- cc_train[ ,30]
+Y_test <- cc_test[ ,30]
+
+## stratified folds for cross-validation:
+foldInds <- createFolds(Y_train, k = 10, list = TRUE, returnTrain = TRUE)
+lapply(foldInds, function(ii) table(Y_train[ii]))
+```
+
+# Training scheme for unbalanced dataset
+```{r}
+ctr_ub <- trainControl(index = foldInd,
+                     method = "repeatedcv",
+                     number = 10,
+                     repeats = 3,
+                     verboseIter = TRUE,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary,
+                     savePredictions = TRUE)
+```
+
+# Training scheme for dataset using "smote" resampling
+```{r}
+ctr_s <- trainControl(index = foldInd,
+                     method = "repeatedcv",
+                     number = 10,
+                     repeats = 3,
+                     verboseIter = TRUE,
+                     classProbs = TRUE,
+                     sampling = "smote",
+                     summaryFunction = twoClassSummary,
+                     savePredictions = TRUE)
+```
+
+# Training scheme for dataset using "up" resampling
+```{r}
+ctr_up <- trainControl(index = foldInd,
+                     method = "repeatedcv",
+                     number = 10,
+                     repeats = 3,
+                     verboseIter = TRUE,
+                     classProbs = TRUE,
+                     sampling = "up",
+                     summaryFunction = twoClassSummary,
+                     savePredictions = TRUE)
+```
+
+# Training scheme for dataset using "down" resampling
+```{r}
+ctr_down <- trainControl(index = foldInd,
+                     method = "repeatedcv",
+                     number = 10,
+                     repeats = 3,
+                     verboseIter = TRUE,
+                     classProbs = TRUE,
+                     sampling = "down",
+                     summaryFunction = twoClassSummary,
+                     savePredictions = TRUE)
+```
+
+# Baseline model: Decision Tree
+
+```{r}
+set.seed(7)
+fit_rpart <- rpart(Class ~ ., data = cc_train)
+fit_rpartPred <- predict(fit_rpart, cc_test, type = "class")
+confusionMatrix(fit_rpartPred,cc_test$Class)
+```
+```{r}
+# Predicting Class probabilities
+prob_fit_rpart <- predict(fit_rpart, cc_test, type = "prob")
+head(prob_fit_rpart)
+
+#library(pROC)
+ROC_fit_rpart <- roc(Y_tst, prob_fit_rpart[ ,"1"])
+plot(ROC_fit_rpart, print.thres = c(0.0001,0.001, 0.01, 0.1, 0.90, 0.999))
+ROC_fit_rpart
+```
+
+# rpart on unbalanced full dataset
+```{r}
+set.seed(7)
+rpart_ub <- train(Class ~., data = ccfd_train, method = "rpart", parms = list(split = "information"), metric = "ROC", trControl=ctr_ub, tuneLength = 30)
+```
+
+```{r}
+rpart_ub
+
+# test set results using confusion matrix
+pred_rpart_ub <- predict(rpart_ub, ccfd_test)
+confusionMatrix(pred_rpart_ub, Y_tst)
+
+# Predicting Class probabilities
+prob_rpart_ub <- predict(rpart_ub, ccfd_test, type = "prob")
+head(prob_rpart_ub)
+
+# AUC using pROC package
+ROC_rpart_ub <- roc(Y_tst, prob_rpart_ub [ ,"Fraud"])
+plot(ROC_rpart_ub, print.thres = c(0.0001,0.001, 0.01, 0.1, 0.90, 0.999), col = "violet")
+ROC_rpart_ub
+
+# AUC using ROCR package
+pr_rpart_ub <- prediction(prob_rpart_ub[ , 1], Y_test)
+prf_rpart_ub <- performance(pr_rpart_ub, measure = "tpr", x.measure = "fpr")
+plot(prf_rpart_ub, col = "violet")
+abline(0,1)
+auc_rub <- performance(pr_rpart_ub, measure = "auc")
+auc_rub <- auc_rub@y.values[[1]]
+auc_rub
+```
+
+# rpart using "smote" resampling
+```{r}
+set.seed(10)
+rpart_s <- train(Class ~., data = ccfd_train, method = "rpart", parms = list(split = "information"), metric = "ROC", trControl=ctr_s, tuneLength = 30)
+```
+
+```{r}
+rpart_s
+
+# test set results using confusion matrix
+pred_rpart_s <- predict(rpart_s, ccfd_test)
+confusionMatrix(pred_rpart_s, Y_tst)
+
+# Predicting Class probabilities
+prob_rpart_s <- predict(rpart_s, ccfd_test, type = "prob")
+head(prob_rpart_s)
+
+# AUC using pROC package
+ROC_rpart_s <- roc(Y_tst, prob_rpart_s [ ,"Fraud"])
+plot(ROC_rpart_s, print.thres = c(0.0001,0.001, 0.01, 0.1, 0.5, 0.999), col = "blue")
+ROC_rpart_s
+
+# AUC using ROCR package
+pr_rpart_s <- prediction(prob_rpart_s[ , 1], Y_test)
+prf_rpart_s <- performance(pr_rpart_s, measure = "tpr", x.measure = "fpr")
+plot(prf_rpart_s, col = "blue")
+abline(0,1)
+auc_s <- performance(pr_rpart_s, measure = "auc")
+auc_s <- auc_s@y.values[[1]]
+auc_s
+```
+
+
+# rpart Using "up"" resampling
+```{r}
+set.seed(7)
+rpart_up <- train(Class ~., data = ccfd_train, method = "rpart", parms = list(split = "information"), metric = "ROC", trControl=ctr_up, tuneLength = 30)
+```
+
+```{r}
+rpart_up
+
+# test set results using confusion matrix
+pred_rpart_up <- predict(rpart_up, ccfd_test)
+confusionMatrix(pred_rpart_up, Y_tst)
+
+# Predicting Class probabilities
+prob_rpart_up <- predict(rpart_up, ccfd_test, type = "prob")
+head(prob_rpart_up)
+
+# AUC using pROC package
+ROC_rpart_up <- roc(Y_tst, prob_rpart_up [ ,"Fraud"])
+plot(ROC_rpart_up, print.thres = c(0.0001,0.001, 0.01, 0.1, 0.5, 0.9, 0.999), col = "green")
+ROC_rpart_up
+
+# AUC using ROCR package
+pr_rpart_up <- prediction(prob_rpart_up[ , 1], Y_test)
+prf_rpart_up <- performance(pr_rpart_up, measure = "tpr", x.measure = "fpr")
+plot(prf_rpart_up, col = "green")
+abline(0,1)
+auc_rup <- performance(pr_rpart_up, measure = "auc")
+auc_rup <- auc_rup@y.values[[1]]
+auc_rup
+
+```
+
+
+# rpart Using "down"" resampling
+```{r}
+set.seed(7)
+rpart_down <- train(Class ~., data = ccfd_train, method = "rpart", parms = list(split = "information"), metric = "ROC", trControl=ctr_down, tuneLength = 30)
+```
+
+```{r}
+rpart_down
+
+# test set results using confusion matrix
+pred_rpart_down <- predict(rpart_down, ccfd_test)
+confusionMatrix(pred_rpart_down, Y_tst)
+
+# Predicting Class probabilities
+prob_rpart_down <- predict(rpart_down, ccfd_test, type = "prob")
+head(prob_rpart_down)
+
+# AUC using pROC package
+ROC_rpart_down <- roc(Y_tst, prob_rpart_down [ ,"Fraud"])
+plot(ROC_rpart_down, print.thres = c(0.0001,0.001, 0.01, 0.1, 0.5, 0.9, 0.999), col = "lightblue")
+ROC_rpart_down
+
+# AUC using ROCR package
+pr_rpart_down <- prediction(prob_rpart_down[ , 1], Y_test)
+prf_rpart_down <- performance(pr_rpart_down, measure = "tpr", x.measure = "fpr")
+plot(prf_rpart_down, col = "lightblue")
+abline(0,1)
+auc_rd <- performance(pr_rpart_down, measure = "auc")
+auc_rd <- auc_rd@y.values[[1]]
+auc_rd
+```
+
+# Stratified 80% - 20% splitting of the dataset into training and testing (V4, V8, V10, V12, V14, V16, V17, V21, V27, and Amount)
+```{r}
+set.seed(7)
+train_id <- createDataPartition(ccfd$Class,times = 1, p=0.8, list=FALSE)
+
+ccf <- ccfd[ , c("V4", "V8", "V10", "V12", "V14", "V16", "V17", "V21", "V27", "Amount", "Class")]
+ccf_train <- ccf[train_id, ]
+ccf_test <- ccf[-train_id, ]
+
+zscorenormalize <- function(x){                               
+                   return((x-mean(x))/(sd(x)))}
+
+Amount_tr <- as.data.frame(lapply(ccf_train[10], zscorenormalize))
+ccf_train <- as.data.frame(c(ccf_train[1:9],Amount_tr,ccf_train[11]))
+Amount_ts <- as.data.frame(lapply(ccf_test[10], zscorenormalize))
+ccf_test <- as.data.frame(c(ccf_test[1:9],Amount_ts,ccf_test[11]))
+
+X_tr <- ccf_train[ ,-11]
+X_ts <- ccf_test[ ,-11]
+
+Y_tr <- ccf_train[ ,11]
+Y_ts <- ccf_test[ ,11]
+
+## stratified folds for cross-validation:
+foldId <- createFolds(Y_tr, k = 10, list = TRUE, returnTrain = TRUE)
+lapply(foldId, function(ii) table(Y_tr[ii]))
+```
+
+# rpart using "smote" resampling with 10 selected features
+```{r}
+set.seed(10)
+rpart_s_sf <- train(Class ~., data = ccf_train, method = "rpart", parms = list(split = "information"), metric = "ROC", trControl=ctr_s, tuneLength = 30)
+```
+
+```{r}
+rpart_s_sf
+
+# test set results using confusion matrix
+pred_rpart_s_sf <- predict(rpart_s_sf, ccf_test)
+confusionMatrix(pred_rpart_s_sf, Y_ts)
+
+# Predicting Class probabilities
+prob_rpart_s_sf <- predict(rpart_s_sf, ccf_test, type = "prob")
+head(prob_rpart_s_sf)
+
+# AUC using pROC package
+ROC_rpart_s_sf <- roc(Y_ts, prob_rpart_s_sf [ ,"Fraud"])
+plot(ROC_rpart_s_sf, print.thres = c(0.0001,0.001, 0.01, 0.1, 0.5, 0.9, 0.999), col ="red")
+ROC_rpart_s_sf
+
+# AUC using ROCR package
+pr_rpart_s_sf <- prediction(prob_rpart_s_sf[ , 1], Y_test)
+prf_rpart_s_sf <- performance(pr_rpart_s_sf, measure = "tpr", x.measure = "fpr")
+plot(prf_rpart_s_sf, col = "red" )
+abline(0,1)
+auc_s_sf <- performance(pr_rpart_s_sf, measure = "auc")
+auc_s_sf <- auc_s_sf@y.values[[1]]
+auc_s_sf
+```
+
+
